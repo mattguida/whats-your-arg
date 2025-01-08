@@ -132,6 +132,10 @@ class ModelType(Enum):
 class DatasetType(Enum):
     COMARG = "comarg"
     YRU = "yru"
+    
+class ArgumentClassificationGemini(typing.TypedDict):
+    id: str 
+    label: int 
 
 class ArgumentClassification(BaseModel):
     id: str = Field(description="The ID of the comment being analyzed")
@@ -160,6 +164,7 @@ class ModelConfig:
                     prompt,
                     generation_config=genai.types.GenerationConfig(
                         response_mime_type="application/json",
+                        response_schema=ArgumentClassificationGemini,
                         temperature=0,
                         top_p=1,
                     ),
@@ -170,19 +175,21 @@ class ModelConfig:
                         "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none"
                     }
                 )
+
                 return json.loads(response.text)
             
             elif self.model_type in [ModelType.GPT4, ModelType.GPT4_MINI]:
                 model_name = "gpt-4o" if self.model_type == ModelType.GPT4 else "gpt-4o-mini"
-                completion = self.client.chat.completions.create(
+                completion = self.client.beta.chat.completions.parse(
                     model=model_name,
                     messages=[
                         {"role": "system", "content": prompt},
                         {"role": "user", "content": comment_text}
                     ],
-                    response_format={"type": "json_object"},
+                    response_format=ArgumentClassification,
                     temperature=0
                 )
+
                 return json.loads(completion.choices[0].message.content)
             
             elif self.model_type == ModelType.LLAMA:
@@ -291,8 +298,8 @@ def prepare_samples(file_path: str, dataset_type: DatasetType, topic: str, n_sho
 # Main execution
 def main():
     # Configuration
-    output_dir = Path("unified_results")
-    models = [ModelType.GEMINI, ModelType.GPT4, ModelType.GPT4_MINI, ModelType.LLAMA]
+    output_dir = Path("task1_outputs")
+    models = [ModelType.GPT4_MINI, ModelType.LLAMA]
     shot_types = [0, 1, 5]
     splits = list(range(1, 6))  # 1 to 5
 
