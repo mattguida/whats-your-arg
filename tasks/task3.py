@@ -27,8 +27,6 @@ client = Together(api_key=api_key)
 PROJECT_ID = os.environ.get('GEMINI_PROJECT_ID')
 LOCATION = "us-central1"
 
-label_mapping = {1: 1, 2: 1, 3: 0, 4: 1, 5:1}
-# We will need this for YRU data only 
 topic_label_to_argument = {
     "abortion": {
         "p-right": "Abortion is a woman’s right.",
@@ -95,32 +93,23 @@ topic_label_to_argument = {
         "c-Other": "Others"
     }
 }
-def prep_fewshot_samples_comarg(samples_file, topic, n):
+def prep_fewshot_samples(samples_file, topic, n):
     df = pd.read_csv(samples_file)
-    ids = df['id'].to_list()
-    sampled = sample(ids, n)
-    print(sampled)
-    df = df[df['id'].isin(sampled)]
-    comment = df.iloc[0]['comment_text']
-    output = f"Comment: {comment}\n The following arguments are present (1) or not present (0) in this comment:\n"
-    for i, row in df.iterrows():
-        argument = row['argument_text']
-        output = f"{output} Argument {i}: {argument}\n"
-        label = label_mapping[row['label']]
-        output = f"{output} Label: {label}\n\n"
-    return output
 
-def prep_fewshot_samples(samples_file, topic):
-    df = pd.read_csv(samples_file)
+    if n != 5:
+        ids = df['uid'].to_list()
+        sampled = sample(ids, n)
+        df = df[df['uid'].isin(sampled)]
+    
     output = ''
     for i, row in df.iterrows():
         comment = row['text']
-        output = f"{output}\n Comment: {comment}\n The following arguments are present (1) or not present (0) in this comment:\n"
+        output = f"{output}\n Comment: {comment}\n"
         argument_type = row['label']
         argument = topic_label_to_argument[topic][argument_type]
         output = f"{output} Argument {i}: {argument}\n"
-        label = row['present']
-        output = f"{output} Label: {label}\n\n"
+        span = row['text']
+        output = f"{output} Span: {span}\n\n"
     return output
 
 class ModelType(Enum):
@@ -130,16 +119,15 @@ class ModelType(Enum):
     LLAMA = "llama"
 
 class DatasetType(Enum):
-    COMARG = "comarg"
     YRU = "yru"
-    
-class ArgumentClassificationGemini(typing.TypedDict):
-    id: str 
-    label: int 
 
-class ArgumentClassification(BaseModel):
-    id: str = Field(description="The ID of the comment being analyzed")
-    label: int = Field(description="The label associated with the argument (0 or 1)")
+class ArgumentSpanGemini(typing.TypedDict):
+    id: str 
+    span: str 
+
+class ArgumentSpan(BaseModel):
+    id: str = Field(description="The ID of the comment being analyzed")    
+    span: str = Field(description="The span of text in the comment that makes use of the argument") 
 
 class ModelConfig:
     def __init__(self, model_type: ModelType):
@@ -155,17 +143,17 @@ class ModelConfig:
         elif self.model_type == ModelType.LLAMA:
             self.client = Together(api_key=os.environ.get('TOGETHER_API_KEY'))
 
-    def classify_text(self, id: str, comment_text: str, topic: str, argument: str, samples: str = "") -> dict:
+    def classify_text(self, id: str, comment: str, topic: str, argument: str, samples: str = "") -> dict:
         prompt = self.create_prompt(id, topic, argument, samples)
         
         try:
             if self.model_type == ModelType.GEMINI:
-                full_prompt = f"{prompt}\nComment: {comment_text}"
+                full_prompt = f"{prompt}\nComment: {comment}"
                 response = self.client.generate_content(
                     full_prompt,
                     generation_config=genai.types.GenerationConfig(
                         response_mime_type="application/json",
-                        response_schema=ArgumentClassificationGemini,
+                        response_schema=ArgumentSpanGemini,
                         temperature=0,
                         top_p=1,
                     ),
@@ -176,7 +164,8 @@ class ModelConfig:
                         "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none"
                     }
                 )
-
+                print(prompt)
+                print(json.loads(response.text))
                 return json.loads(response.text)
             
             elif self.model_type in [ModelType.GPT4, ModelType.GPT4_MINI]:
@@ -185,9 +174,9 @@ class ModelConfig:
                     model=model_name,
                     messages=[
                         {"role": "system", "content": prompt},
-                        {"role": "user", "content": comment_text}
+                        {"role": "user", "content": comment}
                     ],
-                    response_format=ArgumentClassification,
+                    response_format=ArgumentSpan,
                     temperature=0
                 )
 
@@ -197,7 +186,7 @@ class ModelConfig:
                 extract = self.client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": prompt},
-                        {"role": "user", "content": comment_text}
+                        {"role": "user", "content": comment}
                     ],
                     model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
                     temperature=0,
@@ -205,7 +194,7 @@ class ModelConfig:
                     top_p=1,
                     response_format={
                         "type": "json_object",
-                        "schema": ArgumentClassification.model_json_schema(),
+                        "schema": ArgumentSpan.model_json_schema(),
                     }
                 )
                 return json.loads(extract.choices[0].message.content)
@@ -216,24 +205,30 @@ class ModelConfig:
 
     def create_prompt(self, id: str, topic: str, argument: str, samples: str) -> str:
         return f"""
-            Analyze whether the following comment about {topic} contains a specific argument.
-            Argument to check for: {argument}
-            Instructions:
-            1. Determine if the comment explicitly or implicitly uses the given argument
-            2. Assign a binary label:
-            - 1 if the argument is present
-            - 0 if the argument is not present
-            Requirements:
-            - Only use 1 or 0 as labels
-            - Provide output in valid JSON format
-            - Do not repeat or include the input text in the response
-            - Focus solely on the presence/absence of the specific argument
-            Return your analysis in this exact JSON format:
-            {{
-                "id": "{id}",
-                "label": label_value
-            }}
-            where label_value must be either 1 or 0 (without quotes)
+                Task: Text Span Identification for Arguments about {topic}
+                Target Argument: {argument}
+                Role: You are an expert in argument analysis and logical reasoning, specializing in identifying rhetorical patterns in social discourse.
+
+                Step-by-Step Instructions:
+                1. Read the input text carefully
+                2. Locate exact text spans that:
+                - Directly reference the target argument
+                - Express the same idea as the argument
+                3. Extract the precise text span
+                4. Format the output according to specifications
+
+                Critical Requirements:
+                - Extract EXACT text only (no paraphrasing)
+                - Include COMPLETE relevant phrases
+                - Use MINIMUM necessary context
+                - Maintain ORIGINAL formatting
+                - Return VALID JSON only
+
+                Output Schema:
+                {{
+                    "id": "{id}",
+                    "span": "exact_text_from_comment"  # must be verbatim quote
+                }}
             
             {f'Some examples:\n{samples}' if samples else ''}
         """
@@ -246,60 +241,56 @@ class DataProcessor:
 
     def process_dataset(
         self,
-        dataset_type: DatasetType,
         df: pd.DataFrame,
         topic: str,
         shot_type: int,
         split: Optional[int] = None,
         samples: str = ""
     ):
-        output_filename = self.get_output_filename(dataset_type, topic, shot_type, split)
+        output_filename = self.get_output_filename(topic, shot_type, split)
         
         with jsonl.open(self.output_dir / output_filename, mode='w') as writer:
             for idx, row in tqdm(df.iterrows(), total=len(df), desc=f"Processing {topic}"):
                 try:
-                    if dataset_type == DatasetType.COMARG:
-                        comment_id = row['id']
-                        comment_text = row['comment_text']
-                        argument = row['argument_text']
-                    else:  # YRU
-                        comment_id = row['uid']
-                        comment_text = row['text']
-                        argument = topic_label_to_argument[topic][row['label']]
+                    comment_id = row['uid']
+                    comment = row['text']
+                    argument = topic_label_to_argument[topic][row['label']]
 
                     classification = self.model_config.classify_text(
                         id=comment_id,
-                        comment_text=comment_text,
+                        comment=comment,
                         topic=topic,
                         argument=argument,
                         samples=samples
                     )
-                    
-                    writer.write({"id": comment_id, "label": classification["label"]})
+                    print(id, comment, topic, argument)
+                    writer.write({
+                        "id": comment_id, 
+                        "span": classification["span"]
+                    })
                     
                 except Exception as e:
                     print(f"Error processing row {idx}: {e}")
-                    writer.write({"id": comment_id if 'comment_id' in locals() else f"error_{idx}", "label": 0})
+                    writer.write({
+                        "id": comment_id if 'comment_id' in locals() else f"error_{idx}", 
+                        "span": ""
+                    })
 
-    def get_output_filename(self, dataset_type: DatasetType, topic: str, shot_type: int, split: Optional[int]) -> str:
+    def get_output_filename(self, topic: str, shot_type: int, split: Optional[int]) -> str:
         model_name = self.model_config.model_type.value
         split_suffix = f"_split_{split}" if split is not None else ""
-        return f"task1_{model_name}_{dataset_type.value}_{topic}_{shot_type}shot{split_suffix}.jsonl"
+        return f"task3_{model_name}_YRU_{topic}_{shot_type}shot{split_suffix}.jsonl"
 
-def load_dataset(file_path: str, dataset_type: DatasetType) -> pd.DataFrame:
+def load_dataset(file_path: str) -> pd.DataFrame:
     df = pd.read_csv(file_path)
     return df
 
-def prepare_samples(file_path: str, dataset_type: DatasetType, topic: str, n_shots: int) -> str:
-    if dataset_type == DatasetType.COMARG:
-        return prep_fewshot_samples_comarg(file_path, topic, n_shots)
-    else:
+def prepare_samples(file_path: str, topic: str, n_shots: int) -> str:
         return prep_fewshot_samples(file_path, topic)
 
 # Main execution
 def main():
-    # Configuration
-    output_dir = Path("task1_outputs")
+    output_dir = Path("task3_outputs")
     models = [ModelType.GEMINI, ModelType.GPT4, ModelType.GPT4_MINI, ModelType.LLAMA]
     shot_types = [0, 1, 5]
     splits = list(range(1, 6))  
@@ -307,34 +298,20 @@ def main():
     for model_type in models:
         model_config = ModelConfig(model_type)
         processor = DataProcessor(model_config, output_dir)
-
-        # Process COMARG datasets
-        comarg_files = ["GM_all_arguments_main", "UGIP_all_arguments_main"]
-        for file_name in comarg_files:
-            # 0-shot
-            df = load_dataset(f"data/{file_name}.csv", DatasetType.COMARG)
-            processor.process_dataset(DatasetType.COMARG, df, file_name, 0)
-
-            # k-shot
-            for shot in [1, 5]:
-                for split in splits:
-                    df = load_dataset(f"data/k-shots/{file_name}_{shot}shot_split_{split}.csv", DatasetType.COMARG)
-                    samples = prepare_samples(f"data/k-shots/{file_name}_{shot}shot_split_{split}.csv", DatasetType.COMARG, file_name, shot)
-                    processor.process_dataset(DatasetType.COMARG, df, file_name, shot, split, samples)
-
+        
         # Process YRU datasets
         yru_topics = ["abortion", "gayRights", "marijuana", "obama"]
         for topic in yru_topics:
             # 0-shot
-            df = load_dataset(f"data/yru_{topic}_with_negatives_main.csv", DatasetType.YRU)
-            processor.process_dataset(DatasetType.YRU, df, topic, 0)
+            df = load_dataset(f"data/yru_{topic}_with_negatives_main.csv")
+            processor.process_dataset(df, topic, 0)
 
             # k-shot
             for shot in [1, 5]:
                 for split in splits:
-                    df = load_dataset(f"data/k-shots/yru_{topic}_with_negatives_main_{shot}shot_split_{split}.csv", DatasetType.YRU)
-                    samples = prepare_samples(f"data/k-shots/yru_{topic}_with_negatives_main_{shot}shot_split_{split}.csv", DatasetType.YRU, topic, shot)
-                    processor.process_dataset(DatasetType.YRU, df, topic, shot, split, samples)
+                    df = load_dataset(f"data/k-shots/yru_{topic}_with_negatives_main_{shot}shot_split_{split}.csv")
+                    samples = prepare_samples(f"data/k-shots/yru_{topic}_with_negatives_main_{shot}shot_split_{split}.csv", topic, shot)
+                    processor.process_dataset(df, topic, shot, split, samples)
 
 if __name__ == "__main__":
     main()

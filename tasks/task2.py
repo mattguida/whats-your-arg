@@ -60,76 +60,75 @@ class ModelConfig:
         elif self.model_type == ModelType.LLAMA:
             self.client = Together(api_key=os.environ.get('TOGETHER_API_KEY'))
 
-    def create_prompt(self, id: str, topic: str, comment_text: str,  argument: str, samples: str, task_type: TaskType) -> str:
-        if task_type == TaskType.TASK2_BINARY:
-            return f"""
-                Task: Binary Classification of Arguments about {topic}
-                Input Text: {comment_text}
-                Target Argument: {argument}
-                Role: You are an expert in argument analysis and logical reasoning, specializing in identifying rhetorical patterns in social discourse.
-                Step-by-Step Instructions:
-                1. Read the input text thoroughly
-                2. Evaluate the text's relationship to the target argument, examining:
-                - Direct support or opposition
-                - Implicit agreement or disagreement
-                3. Make a binary classification decision
-                4. Format the output according to specifications
-                Classification Rules:
-                - Label = 5: Comment supports/agrees with argument
-                - Label = 1: Comment attacks/disagrees with argument
-                Critical Requirements:
-                - Use ONLY specified labels (1 or 5)
-                - Do NOT quote or repeat input texts
-                - Return VALID JSON only
-                {f'Examples:\n{samples}' if samples else ''}
-                Output Schema:
-                {{
-                    "id": "{id}",
-                    "label": label_value  # must be 1 or 5 without quotes
-                }}
-            """
-        elif task_type == TaskType.TASK2_FULL:
-            return f"""
-                Task: Classification of Arguments about {topic}
-                Input Text: {comment_text}
-                Target Argument: {argument}
-                Role: You are an expert in argument analysis and logical reasoning, specializing in identifying rhetorical patterns in social discourse.
-                Step-by-Step Instructions:
-                1. Read the input text thoroughly
-                2. Evaluate the text's relationship to the target argument, examining:
-                - Direct support or opposition
-                - Implicit agreement or disagreement
-                3. Make a classification decision
-                4. Format the output according to specifications
-                Classification Rules:
-                - Label = 5: Comment supports/agrees with argument explicitly
-                - Label = 4: Comment supports/agrees with argument implicitly/indirectly
-                - Label = 2: Comment attacks/disagrees with argument implicitly/indirectly
-                - Label = 1: Comment attacks/disagrees with argument explicitly
-                Critical Requirements:
-                - Use ONLY specified labels (1, 2, 4 or 5)
-                - Do NOT quote or repeat input texts
-                - Return VALID JSON only
-                {f'Examples:\n{samples}' if samples else ''}
-                Output Schema:
-                {{
-                    "id": "{id}",
-                    "label": label_value  # must be 1, 2, 4 or 5 without quotes
-                }}
-            """
+def create_prompt(self, id: str, topic: str, argument: str, samples: str, task_type: TaskType) -> str:
+    if task_type == TaskType.TASK2_BINARY:
+        return f"""
+            Task: Binary Classification of Arguments about {topic}
+            Target Argument: {argument}
+            Role: You are an expert in argument analysis and logical reasoning, specializing in identifying rhetorical patterns in social discourse.
+            Step-by-Step Instructions:
+            1. Read the input text thoroughly
+            2. Evaluate the text's relationship to the target argument, examining:
+            - Direct support or opposition
+            - Implicit agreement or disagreement
+            3. Make a binary classification decision
+            4. Format the output according to specifications
+            Classification Rules:
+            - Label = 5: Comment supports/agrees with argument
+            - Label = 1: Comment attacks/disagrees with argument
+            Critical Requirements:
+            - Use ONLY specified labels (1 or 5)
+            - Do NOT quote or repeat input texts
+            - Return VALID JSON only
+            {f'Examples:\n{samples}' if samples else ''}
+            Output Schema:
+            {{
+                "id": "{id}",
+                "label": label_value  # must be 1 or 5 without quotes
+            }}
+        """
+    elif task_type == TaskType.TASK2_FULL:
+        return f"""
+            Task: Classification of Arguments about {topic}
+            Target Argument: {argument}
+            Role: You are an expert in argument analysis and logical reasoning, specializing in identifying rhetorical patterns in social discourse.
+            Step-by-Step Instructions:
+            1. Read the input text thoroughly
+            2. Evaluate the text's relationship to the target argument, examining:
+            - Direct support or opposition
+            - Implicit agreement or disagreement
+            3. Make a classification decision
+            4. Format the output according to specifications
+            Classification Rules:
+            - Label = 5: Comment supports/agrees with argument explicitly
+            - Label = 4: Comment supports/agrees with argument implicitly/indirectly
+            - Label = 2: Comment attacks/disagrees with argument implicitly/indirectly
+            - Label = 1: Comment attacks/disagrees with argument explicitly
+            Critical Requirements:
+            - Use ONLY specified labels (1, 2, 4 or 5)
+            - Do NOT quote or repeat input texts
+            - Return VALID JSON only
+            {f'Examples:\n{samples}' if samples else ''}
+            Output Schema:
+            {{
+                "id": "{id}",
+                "label": label_value  # must be 1, 2, 4 or 5 without quotes
+            }}
+        """
 
-    def classify_text(self, id: str, comment_text: str, topic: str, argument: str, samples: str, task_type: TaskType) -> dict:
-        prompt = self.create_prompt(id, topic, comment_text, argument, samples, task_type)
-        print(prompt)
-        try:
-            if self.model_type == ModelType.GEMINI:
-                response = self.client.generate_content(
-                    prompt,
+def classify_text(self, id: str, comment_text: str, topic: str, argument: str, samples: str, task_type: TaskType) -> dict:
+    prompt = self.create_prompt(id, topic, argument, samples, task_type)
+    
+    try:
+        if self.model_type == ModelType.GEMINI:
+            full_prompt = f"{prompt}\nComment: {comment_text}"
+            response = self.client.generate_content(
+                    full_prompt,
                     generation_config=genai.types.GenerationConfig(
-                        temperature=0,
-                        top_p=1,
                         response_mime_type="application/json",
                         response_schema=RelationClassificationGemini,
+                        temperature=0,
+                        top_p=1,
                     ),
                     safety_settings={
                         "HARM_CATEGORY_HARASSMENT": "block_none",
@@ -139,41 +138,41 @@ class ModelConfig:
                     }
                 )
 
-                return json.loads(response.text)
-            
-            elif self.model_type in [ModelType.GPT4, ModelType.GPT4_MINI]:
-                model_name = "gpt-4o" if self.model_type == ModelType.GPT4 else "gpt-4o-mini"
-                completion = self.client.beta.chat.completions.parse(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": prompt},
-                        {"role": "user", "content": comment_text}
-                    ],
-                    response_format=RelationClassification,
-                    temperature=0
-                )
-                return json.loads(completion.choices[0].message.content)
-            
-            elif self.model_type == ModelType.LLAMA:
-                extract = self.client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": prompt},
-                        {"role": "user", "content": comment_text}
-                    ],
-                    model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-                    temperature=0,
-                    top_k=1,
-                    top_p=1,
-                    response_format={
-                        "type": "json_object",
-                        "schema": RelationClassification.model_json_schema(),
-                    }
-                )
-                return json.loads(extract.choices[0].message.content)
+            return json.loads(response.text)
         
-        except Exception as e:
-            print(f"Error in classification: {e}")
-            return {"id": id, "label": 3}
+        elif self.model_type in [ModelType.GPT4, ModelType.GPT4_MINI]:
+            model_name = "gpt-4o" if self.model_type == ModelType.GPT4 else "gpt-4o-mini"
+            completion = self.client.beta.chat.completions.parse(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": comment_text}
+                ],
+                response_format=RelationClassification,
+                temperature=0
+            )
+            return json.loads(completion.choices[0].message.content)
+        
+        elif self.model_type == ModelType.LLAMA:
+            extract = self.client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": comment_text}
+                ],
+                model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+                temperature=0,
+                top_k=1,
+                top_p=1,
+                response_format={
+                    "type": "json_object",
+                    "schema": RelationClassification.model_json_schema(),
+                }
+            )
+            return json.loads(extract.choices[0].message.content)
+    
+    except Exception as e:
+        print(f"Error in classification: {e}")
+        return {"id": id, "label": 3}
 
 def prep_fewshot_samples_task2(samples_file: str, task_type: TaskType, n: int) -> str:
     df = pd.read_csv(samples_file)
