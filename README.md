@@ -11,94 +11,69 @@ We present a comprehensive analysis of large language models' capabilities in ar
 
 ## Repository Structure
 
+
 ```
+├── baseline/
+│   ├── llama/              # Fine tuning code for Llama, Task 1 and 2
+│   ├── roberta/            # Fine tuning codes for RoBERTa, all tasks
 ├── data/
-│   ├── raw/                # Original comment datasets
-│   ├── processed/          # Preprocessed datasets
-│   └── annotations/        # Human annotations for arguments
-├── models/
-│   ├── roberta/           # Fine-tuned RoBERTa models
-│   └── llm/               # LLM prompts and configurations
-├── src/
-│   ├── preprocessing/     # Data preprocessing scripts
-│   ├── training/          # Model training code
-│   ├── evaluation/        # Evaluation scripts
-│   └── utils/            # Helper functions
-├── experiments/
-│   ├── configs/          # Experiment configurations
-│   └── results/          # Experimental results and logs
-├── notebooks/            # Analysis notebooks
-└── scripts/              # Utility scripts
+│   ├── fine_tuning/        # Aggregated datasets for fine tuning
+│   ├── k-shots/            # K-shot examples, 5 splits
+│   └──                     # Original datasets (.csv)
+├── evaluation/
+│   ├── /                   # Evaluation scripts
+│   └── /              
+├── tasks/                  # Script for 0, 1 and 5 shot inferences per task
+│   ├── task1/     
+│   ├── task2/         
+│   ├── task3/        
+│   └── utils/            
 ```
 
-## Requirements
-
-```
-python>=3.8
-torch>=1.9.0
-transformers>=4.21.0
-datasets>=2.3.0
-scikit-learn>=0.24.2
-rouge-score>=0.1.2
-accelerate>=0.12.0
-```
 
 ## Dataset
 
 The dataset consists of over 2,000 opinion comments covering six polarizing topics:
 - Gay Marriage
+- Gay Rights
 - Marijuana Legalization
-- [Other topics]
+- Abortion
+- The inclusion of "Under God" in the US Pledge of Alliance
+- The Obama administration
 
-Each comment is annotated with:
+Comments are annotated with:
 - Presence of pre-defined arguments
 - Argument spans
 - Support/attack labels
+(For more detailed information, please refer to the original papers and our paper)
 
 The original datasets are from:
-- Boltužić and Šnajder (2014)
-- Hasan and Ng (2014)
+- [Boltužić and Šnajder (2014)](https://aclanthology.org/W14-2107/)
+- [Hasan and Ng (2014)](https://aclanthology.org/D14-1083/)
 
 ## Models
 
 We evaluate several models:
-- Fine-tuned RoBERTa (baseline)
-- GPT4o
-- GPT4o-mini
-- Gemini1.5-flash
+- Fine-tuned RoBERTa (baseline) for all three tasks, Fine-tuned Llama3 (for task 1 and 2);
+- GPT4o;
+- GPT4o-mini;
+- Gemini1.5-flash;
 - Llama3-8b
 
 ## Usage
 
-### Data Preprocessing
+To set up the project locally, follow these steps:
 
-```bash
-# Preprocess raw data
-python src/preprocessing/prepare_data.py
+1. **Clone the Repository**:
+    ```bash
+   git clone https://github.com/mattguida/whats-your-arg.git
+   cd whats-your-arg
+    ```
+2. **Create a virtual environment and install the requirements**:
+    ```
+    pip install -r requirements.txt
+    ```
 
-# Generate train/val/test splits
-python src/preprocessing/create_splits.py
-```
-
-### Training
-
-```bash
-# Fine-tune RoBERTa
-python src/training/train_roberta.py --config experiments/configs/roberta_config.json
-
-# Run LLM experiments
-python src/training/run_llm_experiments.py --model [model_name] --task [task_number]
-```
-
-### Evaluation
-
-```bash
-# Evaluate models
-python src/evaluation/evaluate.py --model [model_name] --task [task_number]
-
-# Generate result tables
-python src/evaluation/generate_tables.py
-```
 
 ## Results
 
@@ -108,7 +83,7 @@ Our main findings show:
 - Inconsistent improvements with in-context learning
 - Fine-tuned LLama outperforms prompt-based approaches
 
-Detailed results can be found in the `experiments/results/` directory.
+Detailed results can be found in the `experiments/results/` directory and in the Result and Conclusion sections of our paper.
 
 ## Citation
 
@@ -116,10 +91,6 @@ Detailed results can be found in the `experiments/results/` directory.
 [Paper citation will go here]
 ```
 
-
-## Contact
-
-
-
 ## Acknowledgments
-
+We extend our gratitude to the authors of the original papers for publicly sharing their datasets.
+This work was supported by the Melbourne Research Scholarship from the Melbourne School of Engineering, University of Melbourne.
