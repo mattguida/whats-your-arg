@@ -44,7 +44,7 @@ The dataset consists of over 2,000 opinion comments covering six polarizing topi
 Comments are annotated with:
 - Presence of pre-defined arguments
 - Argument spans
-- Support/attack labels\\
+- Support/attack labels  
 (For more detailed information, please refer to the original papers and our paper)
 
 The original datasets are from:
